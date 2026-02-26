@@ -3,7 +3,7 @@ services:
     name: math-arena-server
     runtime: node
     plan: free
-    buildCommand: npm install && npm run build:server
+    buildCommand: npm install --include=dev && npm run build:server
     startCommand: node packages/server/dist/index.js
     envVars:
       - key: NODE_ENV
@@ -12,12 +12,14 @@ services:
         sync: false
       - key: CORS_ORIGIN
         sync: false
+      - key: JWT_SECRET
+        sync: false
 
   - type: web
     name: math-arena-client
     runtime: static
     plan: free
-    buildCommand: npm install && npm run build:client
+    buildCommand: npm install --include=dev && npm run build:client
     staticPublishPath: packages/client/dist
     headers:
       - path: /*
