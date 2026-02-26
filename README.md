@@ -9,6 +9,7 @@ A real-time competitive math quiz where multiple users compete to solve BODMAS m
 | Frontend | React 18, Vite, TypeScript, Tailwind CSS |
 | Backend | Node.js, Express, TypeScript, Socket.io |
 | Database | MongoDB (Atlas M0 free tier) |
+| Auth | JWT (bcrypt password hashing, 1-day token expiry) |
 | Deployment | Render.com |
 
 ## Architecture
@@ -22,11 +23,15 @@ packages/
 
 ### Key Design Decisions
 
-**Concurrency handling:** Atomic MongoDB `findOneAndUpdate` within transactions ensures exactly one winner per question. The query `{ _id: questionId, status: "active", answer: submittedAnswer }` atomically validates the answer AND claims the question in a single operation.
+**Concurrency handling:** Atomic MongoDB `findOneAndUpdate` within transactions ensures exactly one winner per question. The query `{ _id: questionId, status: "active" }` atomically claims the question in a single operation, preventing race conditions.
 
 **Server-driven timing:** All timers run server-side (60s question duration, 5s cooldown). Clients receive tick updates every second. This prevents client-side timer drift and manipulation.
 
 **BODMAS question generator:** Builds random expressions with 2-4 operations, numbers 1-50, optional parentheses. Uses a safe recursive descent parser (no `eval()`). Answers are guaranteed positive integers.
+
+**Single session enforcement:** Only one active socket connection per user. Logging in from a new device kicks the previous session with a notification.
+
+**Accurate online count:** Connected users are tracked via a userId-based Set (not socket count), so the same user on multiple tabs doesn't inflate the count.
 
 **Transactions:** All write operations use MongoDB transactions for consistency (answer submission, user score updates, question lifecycle).
 
@@ -48,7 +53,7 @@ npm install
 2. Create `.env` from example:
 ```bash
 cp .env.example .env
-# Edit .env with your MongoDB Atlas connection string
+# Edit .env with your MongoDB Atlas connection string and JWT_SECRET
 ```
 
 3. Start development servers:
@@ -62,24 +67,14 @@ This starts both the backend (port 3001) and frontend (port 5173) concurrently.
 
 ## How It Works
 
-1. Users enter a username to join (no signup needed)
-2. A BODMAS math question appears with a 60-second timer
-3. First correct answer wins the round
-4. 5-second cooldown, then a new question appears
-5. Questions auto-generate while users are connected
-6. Trophy icon shows top 5 players by correct answers
-
-## Noted Corners & Production Improvements
-
-These are areas where I kept the implementation simple for the time constraint, with notes on what a production version would include:
-
-- **No Redis:** Single-server deployment means in-process Socket.io state works fine. For horizontal scaling, add Redis as Socket.io adapter and for pub/sub.
-- **No structured logging:** Using `console.log/error`. Production would use Winston or Pino with JSON format.
-- **No CI/CD:** No automated test pipeline. Would add GitHub Actions with Jest for unit tests and Playwright for E2E.
-- **No rate limiting middleware:** Only socket-level throttle (1 answer/sec). Would add `express-rate-limit` for HTTP endpoints.
-- **No input sanitization library:** Manual validation only. Would add `express-validator` or `zod`.
-- **No monitoring:** No APM, error tracking, or alerting. Would add Sentry or Datadog.
-- **Simple username auth:** No passwords, sessions, or JWT. Would add proper auth for a real product.
+1. Sign up with a username and password (or log in if returning)
+2. Session persists in localStorage — returning users can continue without re-entering credentials
+3. A BODMAS math question appears with a 60-second timer
+4. First correct answer wins the round
+5. 5-second cooldown, then a new question auto-generates
+6. Questions keep generating as long as at least one user is connected
+7. Live score badge shows your correct/attempted count in the header
+8. Trophy icon opens the leaderboard with top 5 players sorted by correct answers
 
 ## Deployment
 
@@ -89,5 +84,6 @@ These are areas where I kept the implementation simple for the time constraint, 
 2. Use the `render.yaml` blueprint for auto-configuration
 3. Set environment variables:
    - `MONGODB_URI` — your Atlas connection string
+   - `JWT_SECRET` — a strong random string for signing tokens
    - `CORS_ORIGIN` — your frontend URL (e.g., `https://math-arena-client.onrender.com`)
    - `VITE_SERVER_URL` — your backend URL (e.g., `https://math-arena-server.onrender.com`)
