@@ -15,7 +15,7 @@ interface AnswerResult {
 
 class GameManager {
   private io: Server | null = null;
-  private connectedUsers = 0;
+  private connectedUsers = new Set<string>();
   private activeQuestion: IQuestion | null = null;
   private tickInterval: ReturnType<typeof setInterval> | null = null;
   private cooldownTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -35,23 +35,24 @@ class GameManager {
   }
 
   getConnectedUsers(): number {
-    return this.connectedUsers;
+    return this.connectedUsers.size;
   }
 
-  addUser(): void {
-    this.connectedUsers++;
-    this.io?.emit('user:count', { count: this.connectedUsers });
+  addUser(userId: string): void {
+    const wasEmpty = this.connectedUsers.size === 0;
+    this.connectedUsers.add(userId);
+    this.io?.emit('user:count', { count: this.connectedUsers.size });
 
-    if (this.connectedUsers === 1 && !this.isRunning) {
+    if (wasEmpty && !this.isRunning) {
       this.startGame();
     }
   }
 
-  removeUser(): void {
-    this.connectedUsers = Math.max(0, this.connectedUsers - 1);
-    this.io?.emit('user:count', { count: this.connectedUsers });
+  removeUser(userId: string): void {
+    this.connectedUsers.delete(userId);
+    this.io?.emit('user:count', { count: this.connectedUsers.size });
 
-    if (this.connectedUsers === 0) {
+    if (this.connectedUsers.size === 0) {
       this.stopGame();
     }
   }
@@ -82,7 +83,7 @@ class GameManager {
   }
 
   private async nextQuestion(): Promise<void> {
-    if (!this.isRunning || this.connectedUsers === 0) return;
+    if (!this.isRunning || this.connectedUsers.size === 0) return;
 
     try {
       // Generate and save question

@@ -23,10 +23,11 @@ const io = new Server(httpServer, {
   cors: {
     origin: corsOrigin,
     methods: ['GET', 'POST'],
+    credentials: true,
   },
 });
 
-app.use(cors({ origin: corsOrigin }));
+app.use(cors({ origin: corsOrigin, credentials: true }));
 app.use(express.json());
 
 app.use('/auth', authRoutes);

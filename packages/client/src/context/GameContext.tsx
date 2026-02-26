@@ -130,7 +130,18 @@ export function GameProvider({ children }: { children: ReactNode }) {
       setCooldownSeconds(data.seconds);
     });
 
-    socket.on('answer:result', (data: { correct: boolean; message: string }) => {
+    socket.on('answer:result', (data: { correct: boolean; attempted?: boolean; message: string }) => {
+      if (data.attempted) {
+        setUser((prev) =>
+          prev
+            ? {
+                ...prev,
+                attempted: prev.attempted + 1,
+                correct: data.correct ? prev.correct + 1 : prev.correct,
+              }
+            : prev
+        );
+      }
       if (!data.correct) {
         setStatusMessage({ text: data.message, type: 'error' });
       }
@@ -142,6 +153,16 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
     socket.on('leaderboard:update', (data: { users: LeaderboardEntry[] }) => {
       setLeaderboard(data.users);
+    });
+
+    socket.on('session:kicked', () => {
+      setUser(null);
+      setQuestion(null);
+      setGameStatus('idle');
+      setStatusMessage({
+        text: 'You were logged in from another device.',
+        type: 'error',
+      });
     });
 
     socket.on('error', (data: { message: string }) => {
@@ -158,6 +179,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
       socket.off('answer:result');
       socket.off('user:count');
       socket.off('leaderboard:update');
+      socket.off('session:kicked');
       socket.off('error');
     };
   }, [socket]);

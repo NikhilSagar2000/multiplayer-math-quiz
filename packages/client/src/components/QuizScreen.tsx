@@ -34,6 +34,11 @@ export function QuizScreen() {
           <span className="text-sm text-slate-400">
             {user?.username}
           </span>
+          {user && (
+            <span className="text-xs font-mono text-emerald-400 bg-emerald-400/10 px-2 py-1 rounded-full">
+              {user.correct}/{user.attempted}
+            </span>
+          )}
           <button
             onClick={logout}
             className="text-xs text-slate-500 hover:text-slate-300 transition-colors"

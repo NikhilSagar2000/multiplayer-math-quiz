@@ -3,8 +3,11 @@ import { User } from '../models/User';
 import { gameManager } from '../services/gameManager';
 import { verifyToken } from '../middleware/auth';
 
-// Track socket → user mapping
+// Track socket → user mapping (socketId → user info)
 const socketUserMap = new Map<string, { userId: string; username: string }>();
+
+// Track user → active socket (userId → socketId) — reverse map for kick detection
+const userSocketMap = new Map<string, string>();
 
 // Rate limiting: track last answer submission time per socket
 const lastSubmitTime = new Map<string, number>();
@@ -43,14 +46,32 @@ export function registerSocketHandlers(io: Server): void {
           return;
         }
 
-        // Map this socket to the user
+        const userId = user._id.toString();
+
+        // Kick previous session if this user is already connected
+        const existingSocketId = userSocketMap.get(userId);
+        if (existingSocketId) {
+          const existingSocket = io.sockets.sockets.get(existingSocketId);
+          if (existingSocket) {
+            existingSocket.emit('session:kicked', {
+              message: 'You were logged in from another device.',
+            });
+            existingSocket.disconnect(true);
+          }
+          // Clean up old socket's tracking data
+          socketUserMap.delete(existingSocketId);
+          lastSubmitTime.delete(existingSocketId);
+        }
+
+        // Map this socket to the user (both directions)
         socketUserMap.set(socket.id, {
-          userId: user._id.toString(),
+          userId,
           username: user.username,
         });
+        userSocketMap.set(userId, socket.id);
 
-        // Track this user as connected
-        gameManager.addUser();
+        // Track this user as connected (Set-based, naturally deduplicates)
+        gameManager.addUser(userId);
 
         // Send join confirmation
         socket.emit('user:joined', {
@@ -72,9 +93,6 @@ export function registerSocketHandlers(io: Server): void {
             remainingSeconds: gameManager.getRemainingSeconds(),
           });
         }
-
-        // Broadcast updated user count
-        io.emit('user:count', { count: gameManager.getConnectedUsers() });
 
         console.log(`User joined: ${user.username} (${socket.id})`);
       } catch (error) {
@@ -133,11 +151,13 @@ export function registerSocketHandlers(io: Server): void {
           } else if (!result.correct) {
             socket.emit('answer:result', {
               correct: false,
+              attempted: true,
               message: 'Wrong answer. Try again!',
             });
           } else {
             socket.emit('answer:result', {
               correct: true,
+              attempted: true,
               message: 'Correct! You won this round!',
             });
           }
@@ -170,7 +190,12 @@ export function registerSocketHandlers(io: Server): void {
     socket.on('disconnect', () => {
       const userData = socketUserMap.get(socket.id);
       if (userData) {
-        gameManager.removeUser();
+        // Only remove from game if this is still the active socket for the user
+        // (a kicked socket's disconnect should NOT remove the user)
+        if (userSocketMap.get(userData.userId) === socket.id) {
+          gameManager.removeUser(userData.userId);
+          userSocketMap.delete(userData.userId);
+        }
         socketUserMap.delete(socket.id);
         lastSubmitTime.delete(socket.id);
         console.log(`User disconnected: ${userData.username} (${socket.id})`);
