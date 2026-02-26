@@ -10,6 +10,7 @@ const COOLDOWN_DURATION = 5; // seconds
 interface AnswerResult {
   correct: boolean;
   alreadySolved: boolean;
+  expired: boolean;
   winner?: string;
 }
 
@@ -207,15 +208,19 @@ class GameManager {
     submittedAnswer: number
   ): Promise<AnswerResult> {
     if (!this.activeQuestion) {
-      return { correct: false, alreadySolved: true };
+      return { correct: false, alreadySolved: false, expired: true };
     }
 
     if (this.activeQuestion._id.toString() !== questionId) {
-      return { correct: false, alreadySolved: true };
+      return { correct: false, alreadySolved: false, expired: true };
     }
 
+    // Snapshot the expected answer before any async work
+    // (activeQuestion could become null during awaits due to timer expiry)
+    const expectedAnswer = this.activeQuestion.answer;
+
     // Check if answer is correct
-    if (submittedAnswer !== this.activeQuestion.answer) {
+    if (submittedAnswer !== expectedAnswer) {
       // Wrong answer — increment attempted count
       const session = await mongoose.startSession();
       try {
@@ -229,7 +234,7 @@ class GameManager {
       } finally {
         session.endSession();
       }
-      return { correct: false, alreadySolved: false };
+      return { correct: false, alreadySolved: false, expired: false };
     }
 
     // Correct answer — atomic update to claim the question
@@ -252,7 +257,7 @@ class GameManager {
         );
 
         if (!updated) {
-          // Question already solved by someone else
+          // Question was already solved or expired in DB
           return;
         }
 
@@ -269,7 +274,13 @@ class GameManager {
       session.endSession();
 
       if (!winner) {
-        return { correct: true, alreadySolved: true };
+        // The DB query failed — question status is no longer 'active'.
+        // Check if it was expired (by timer) vs solved (by another user).
+        const q = await Question.findById(questionId).select('status').lean();
+        if (q?.status === 'expired') {
+          return { correct: true, alreadySolved: false, expired: true };
+        }
+        return { correct: true, alreadySolved: true, expired: false };
       }
 
       // Stop the timer and broadcast win
@@ -285,7 +296,7 @@ class GameManager {
       // Start cooldown before next question
       this.startCooldown();
 
-      return { correct: true, alreadySolved: false, winner };
+      return { correct: true, alreadySolved: false, expired: false, winner };
     } catch (error) {
       session.endSession();
       console.error('Error handling answer:', error);

@@ -143,7 +143,12 @@ export function registerSocketHandlers(io: Server): void {
             answer
           );
 
-          if (result.alreadySolved) {
+          if (result.expired) {
+            socket.emit('answer:result', {
+              correct: false,
+              message: "Time's up! Wait for the next question.",
+            });
+          } else if (result.alreadySolved) {
             socket.emit('answer:result', {
               correct: false,
               message: 'This question has already been solved!',
