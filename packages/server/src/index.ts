@@ -33,6 +33,7 @@ app.use(express.json());
 app.use('/auth', authRoutes);
 
 app.get('/health', (_req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
